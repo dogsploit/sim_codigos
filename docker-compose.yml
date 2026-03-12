@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  wss-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.wss
+    ports:
+      - "8765:8765"
+    volumes:
+      - ./certs:/app/certs
+      - ./logs:/app/logs
+    environment:
+      - TUNNEL_PORT=8765
+      - TUNNEL_HOST=0.0.0.0
+    restart: unless-stopped
+    networks:
+      - tunnel-net
+
+  chrome-headless:
+    image: zenika/alpine-chrome:latest
+    command: 
+      - --no-sandbox
+      - --disable-gpu
+      - --headless
+      - --remote-debugging-port=9222
+      - --remote-debugging-address=0.0.0.0
+      - --disable-web-security
+      - --ignore-certificate-errors
+      - --disable-blink-features=AutomationControlled
+      - --window-size=1920,1080
+      - --enable-features=NetworkService,NetworkServiceInProcess
+      - --user-data-dir=/data
+      - --enable-logging=stderr
+      - --v=1
+      - https://claude.ai
+    ports:
+      - "9222:9222"
+    volumes:
+      - ./chrome-data:/data
+    shm_size: 2gb
+    restart: unless-stopped
+    networks:
+      - tunnel-net
+    depends_on:
+      - wss-server
+
+  tunnel-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.manager
+    volumes:
+      - ./scripts:/app/scripts
+      - ./logs:/app/logs
+    environment:
+      - WSS_URL=wss://wss-server:8765
+      - CHROME_DEBUG_URL=ws://chrome-headless:9222
+    networks:
+      - tunnel-net
+    depends_on:
+      - wss-server
+      - chrome-headless
+    restart: unless-stopped
+
+networks:
+  tunnel-net:
+    driver: bridge
